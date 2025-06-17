@@ -29,8 +29,9 @@ typedef struct {
 //func auxiliares
 uint8_t ds3231_read_time(rtc_time_t *t);
 uint8_t ds3231_set_time(const rtc_time_t *t);
-uint8_t ds3231_set_alarm1(const rtc_alarm_t *a);
 uint8_t ds3231_check_alarm(void);
 void ds3231_clear_alarm(void);
+
+
 
 #endif 

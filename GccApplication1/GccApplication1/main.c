@@ -4,6 +4,8 @@
 #include <util/delay.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <ctype.h>
+
 
 #include "i2c.h"
 #include "config.h"
@@ -15,10 +17,11 @@
 
 //Definimos estados
 typedef enum {
-	IDLE,       
-	ON,    
-	SET_TIME,  
-	SET_ALARM  
+	IDLE,
+	ON,
+	SET_TIME,
+	SET_ALARM,
+	ALARM_NOTIFY
 } state_t;
 
 static state_t state = IDLE;
@@ -28,36 +31,52 @@ static rtc_alarm_t alarm = {0, 0, 0};
 static uint8_t alarm_triggered = 0;
 static uint8_t alarm_count = 0;
 static uint8_t last_minute = 0xFF;
+uint8_t last_sec = 0xFF;  // valor inválido inicial
 
-//Acumula bytes hasta CR/LF --> devuelve 1 cuando termino la linea en el bufferASAS
+
 static uint8_t rx_line_ready(void) {
-	while (uart_available()) { //mientras haya datos en el buffer
-		char c = uart_read(); //lee caracter
-		if (c=='\r' || c=='\n') { //verifica si es fin de linea
+	while (uart_available()) {
+		char c = uart_read();
+
+		//borrado de caracter 
+		if (c == '\b' || c == 0x7F) {
+			if (cmd_len > 0) {
+				cmd_len--;
+			}
+			continue;
+		}
+
+		//fin linea
+		if (c == '\r' || c == '\n') {
 			cmd_buf[cmd_len] = '\0';
 			cmd_len = 0;
+			uart_write("\r\n");
 			return 1;
 		}
-		if (cmd_len < BUFFER_SIZE-1) { //verifica que no este lleno
-			cmd_buf[cmd_len] = c;
-			cmd_len++;
+
+		
+		if (cmd_len < BUFFER_SIZE - 1 && isprint((unsigned char)c)) {
+			cmd_buf[cmd_len++] = c;
 		}
+		
 	}
 	return 0;
 }
 
+
 void show_current_time() {
 	rtc_time_t now;
-	if (!ds3231_read_time(&now)) {
-		char out[48];
-		sprintf(out, "\rFECHA:%02u/%02u/%02u HORA:%02u:%02u:%02u    ",
-		now.date, now.month, now.year, now.hour, now.min, now.sec);
-		uart_write(out);
+	if (ds3231_read_time(&now) == 0) { //imprime cada vez que cambia 1 segundo
+		if (now.sec != last_sec) {
+			last_sec = now.sec;
+			char out[48];
+			sprintf(out,"\rFECHA:%02u/%02u/%02u HORA:%02u:%02u:%02u\r",now.date, now.month, now.year,now.hour, now.min,  now.sec);
+			uart_write(out);
+		}
+	
 		
-		// Verificación de alarma basada en comparación de tiempo
-		if (alarm.enabled && !alarm_triggered &&
-		now.hour == alarm.hour && now.min == alarm.min &&
-		now.min != last_minute) {
+		//verifica alarma
+		if (alarm.enabled && !alarm_triggered && now.hour == alarm.hour && now.min == alarm.min &&now.min != last_minute) {
 			alarm_triggered = 1;
 			alarm_count = 0;
 			uart_write("\r\nALARMA ACTIVADA!\r\n");
@@ -65,28 +84,66 @@ void show_current_time() {
 		last_minute = now.min;
 	}
 }
+
+static uint8_t handle_set_time(const char *p) {
+	if (strlen(p) == 17
+	&& p[2]=='/' && p[5]=='/' && p[8]==' '
+	&& p[11]==':' && p[14]==':'
+	&& isdigit((unsigned char)p[0]) && isdigit((unsigned char)p[1])
+	&& isdigit((unsigned char)p[3]) && isdigit((unsigned char)p[4])
+	&& isdigit((unsigned char)p[6]) && isdigit((unsigned char)p[7])
+	&& isdigit((unsigned char)p[9]) && isdigit((unsigned char)p[10])
+	&& isdigit((unsigned char)p[12]) && isdigit((unsigned char)p[13])
+	&& isdigit((unsigned char)p[15]) && isdigit((unsigned char)p[16])
+	)
+	{
+		rtc_time_t t;
+		t.date  = (p[0]-'0')*10 + (p[1]-'0');
+		t.month = (p[3]-'0')*10 + (p[4]-'0');
+		t.year  = (p[6]-'0')*10 + (p[7]-'0');
+		t.hour  = (p[9]-'0')*10 + (p[10]-'0');
+		t.min   = (p[12]-'0')*10 + (p[13]-'0');
+		t.sec   = (p[15]-'0')*10 + (p[16]-'0');
+		t.day   = 1;
+
+		if (ds3231_set_time(&t) == 0) {
+			uart_write("OK\r\n");
+			return 1; 
+		} else {
+			uart_write("ERROR I2C\r\n");
+		}
+	} else {
+		uart_write("FORMATO ERRONEO\r\n");
+	}
+	return 0;  
+}
+
+
+void show_menu(){
+		uart_write("\r\n*** RTC ALARM CLOCK ***\r\n");
+		uart_write("COMANDOS:\r\n");
+		uart_write("ON\r\n");
+		uart_write("OFF\r\n");
+		uart_write("SET TIME DD/MM/YY HH:MM:SS\r\n");
+		uart_write("SET ALARM HH:MM\r\n");
+	
+}
 int main(void) {
 	DDRD |= (1<<PD1);// PD1 = TX out
+	
 	uart_init_int();
 	twi_init();
 	sei();
 	
-	// Mensaje de bienvenida
-	uart_write("\r\n*** RTC ALARM CLOCK ***\r\n");
-	uart_write("COMANDOS:\r\n");
-	uart_write("ON - Mostrar hora\r\n");
-	uart_write("OFF - Ocultar hora\r\n");
-	uart_write("SET TIME DD/MM/YY HH:MM:SS\r\n");
-	uart_write("SET ALARM HH:MM\r\n");
-	uart_write("ALARM OFF - Desactivar alarma\r\n");
-	
+	//menu
 
-	uint16_t   ms_count = 0;
+	
+	state_t prev_state = (state_t)-1;
+	rtc_time_t now;
 
 	while (1) {
-		
-		//Verificar alarma		
-		rtc_time_t now;
+			
+		//verificacion de alarma por polling		
 		if (alarm.enabled && ds3231_check_alarm()) {
 			alarm_triggered = 1; //activo flag
 			ds3231_clear_alarm(); //limpio flag
@@ -96,80 +153,77 @@ int main(void) {
 				// Solo activar al inicio del minuto (segundos == 0)
 				alarm_triggered = 1;
 				alarm_count = 0;
-				uart_write("\r\n¡ALARMA ACTIVADA!\r\n");
+				state = ALARM_NOTIFY;
 				ds3231_clear_alarm();
 			}
 		}
 
-		//Procesamiento de comandos	
+		//comandos	
 		if (rx_line_ready()) {
 			if (strcasecmp(cmd_buf, "ON") == 0) {
 				state = ON;
-				uart_write("Visualizacion activada\r\n");
+				uart_write("HORA ON\r\n");
 			}
 			else if (strcasecmp(cmd_buf, "OFF") == 0) {
 				state = IDLE;
-				uart_write("Visualizacion desactivada\r\n");
+				uart_write("HORA OFF\r\n");
 			}
 			else if (strncmp(cmd_buf, "SET TIME ", 9) == 0) {
+				uart_write("DEBUG: \"");
+				uart_write(cmd_buf);
+				uart_write("\"\r\n");
 				state = SET_TIME;
 			}
 			else if (strncmp(cmd_buf, "SET ALARM ", 10) == 0) {
 				state = SET_ALARM;
-			}
-			else if (strcasecmp(cmd_buf, "ALARM OFF") == 0) {
-				alarm.enabled = 0;
-				alarm_triggered = 0;
-				uart_write("Alarma desactivada\r\n");
+			}else{
+				uart_write("COMANDO ERRONEO");
+				show_menu();
 			}
 			
 			cmd_buf[0] = '\0';
-			ms_count = 0;
 		}
 		
-		//Menu de opciones	
+		
+		if (state != prev_state) {
+			if (state == IDLE) {
+				show_menu(); //muestra el menu solamente si IDLE no fue el estado anterior (lo muestra 1 vez)
+			}
+			prev_state = state;
+		}
+		
+		//estados	
 		switch (state) {
 			
 			case IDLE:
-			_delay_ms(10);
+				//estado en el que esta el mcu cuando no se esta realiazndo ninguna accion
 			break;
 
-			case ON:
-			_delay_ms(10);
-			if ((ms_count += 10) >= 1000) {
-				ms_count = 0;
-				if (!ds3231_read_time(&now)) {
-					char out[48];
-					sprintf(out,"\rFECHA:%02u/%02u/%02u HORA:%02u:%02u:%02u    ",now.date, now.month, now.year,now.hour, now.min,  now.sec);uart_write(out);
-				}
-			}
-			break;
-
-			case SET_TIME:
+			case ON: //muestra fecha y hora
 			{
-				rtc_time_t t;
-				if (sscanf(cmd_buf+9, "%hhu/%hhu/%hhu %hhu:%hhu:%hhu",&t.date, &t.month, &t.year,&t.hour, &t.min,  &t.sec) == 6){
-					t.day = 1;
-					if (!ds3231_set_time(&t)){ 
-						uart_write("OK\r\n");
-					}else{                      
-						uart_write("ERROR I2C\r\n");
-					}
-				} else {
-					uart_write("FORMATO ERRONEO\r\n");
-				}
-				state = ON;
+				show_current_time();
 			}
+			break;
+
+			case SET_TIME: 
+			{
+				if (handle_set_time(cmd_buf + 9) == 1){
+					state = ON;
+				}else{
+					state = IDLE;
+				}
+			} 
 			break;
 		
-		 case SET_ALARM: {
-			 if (sscanf(cmd_buf+10, "%hhu:%hhu", &alarm.hour, &alarm.min) == 2) {
+			case SET_ALARM: 
+			{
+				if (sscanf(cmd_buf+10, "%hhu:%hhu", &alarm.hour, &alarm.min) == 2) {
 				 // Configurar alarma para que coincida con hora y minuto específicos
-				 uint8_t alarm_settings[4] = {
-					 dec2bcd(alarm.min),       // Minutos (A1M1=0 - comparar minutos)
-					 dec2bcd(alarm.hour),       // Horas (A1M2=0 - comparar horas)
-					 0x80,                      // Día/Fecha (A1M3=1 - ignorar)
-					 0x80                       // A1M4=1 (siempre activo)
+					uint8_t alarm_settings[4] = {
+					dec2bcd(alarm.min),       // Minutos (A1M1=0 - comparar minutos)
+					dec2bcd(alarm.hour),       // Horas (A1M2=0 - comparar horas)
+					0x80,                      // Día/Fecha (A1M3=1 - ignorar)
+					0x80                       // A1M4=1 (siempre activo)
 				 };
 				
 				// 3. Escribir configuración de alarma
@@ -190,36 +244,37 @@ int main(void) {
 						alarm_triggered = 0;
 						alarm_count = 0;
 						
-						// Mostrar confirmación
+						//confirmacion de alarma
 						char msg[32];
 						sprintf(msg, "Alarma configurada para %02d:%02d\r\n",
 						alarm.hour, alarm.min);
 						uart_write(msg);
-					}
 					} else {
-					uart_write("Error de comunicación I2C\r\n");
-				}
+						uart_write("Error de comunicación I2C\r\n");
+					}
 				} else {
-				uart_write("Formato incorrecto. Use HH:MM\r\n");
+					uart_write("Formato erroneo. Usar HH:MM\r\n");
+				}
+			state = IDLE;
 			}
-			state = ON;
 		}
-		 break;
-	  
-	}
-	// Manejo de la notificación de alarma
-	    if (alarm_triggered && alarm_count < 5) {
-		    if ((ms_count % 1000) == 0) { // Cada segundo
-			    uart_write("ALARMA!\r\n");
-			    alarm_count++;
-			    if (alarm_count == 5) {
-				    alarm_triggered = 0;
-			    }
-		    }
-	    }
-	   
+		break;
+		
+		case ALARM_NOTIFY:
+		{
+			if(ds3231_read_time(&now) == 0){
+				if(now.sec != last_sec){
+					last_sec = now.sec;
+					uart_write("ALARMA!\r\n");
+					alarm_count++;
+					if(alarm_count >= 5){
+						state = ON;
+					}
+				}
+			}
+		}
+		break;
+	} 
 	 _delay_ms(10);
-	 ms_count += 10;
    }
-  //return 0;
 }
