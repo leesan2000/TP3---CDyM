@@ -1,5 +1,6 @@
 #include "i2c.h"
 #include "ds3231.h"
+#include "uart.h"
 
 uint8_t bcd2dec(uint8_t b){
 	uint8_t decena = (b >> 4) & 0x0F;
@@ -36,13 +37,29 @@ uint8_t ds3231_set_time(const rtc_time_t *t)
 
 uint8_t ds3231_read_time(rtc_time_t *t)
 {
-	if (twi_start(DS3231_ADDR_WRITE) != 0x18){
-		return 1;
-	}
-	twi_write(0x00);                              // seconds reg
-	if (twi_start(DS3231_ADDR_READ)  != 0x40){ 
-		return 1;
-	}
+		uart_write("CHECKPOINT 4\r\n");
+		uint8_t st;
+		st = twi_start(DS3231_ADDR_WRITE);
+		if (st == 0xFF) {
+			uart_write("I2C START W timeout\r\n");
+			return 1;
+		}
+		if (st != 0x18) {
+			uart_write("I2C START W err\r\n");
+			return 1;
+		}
+		twi_write(0x00);
+
+		st = twi_start(DS3231_ADDR_READ);
+		if (st == 0xFF) {
+			uart_write("I2C START R timeout\r\n");
+			return 1;
+		}
+		if (st != 0x40) {
+			uart_write("I2C START R err\r\n");
+			return 1;
+		}
+
 
 	t->sec   = bcd2dec(twi_read(1));
 	t->min   = bcd2dec(twi_read(1));
@@ -50,7 +67,9 @@ uint8_t ds3231_read_time(rtc_time_t *t)
 	t->day   = bcd2dec(twi_read(1));
 	t->date  = bcd2dec(twi_read(1));
 	t->month = bcd2dec(twi_read(1));
-	t->year  = bcd2dec(twi_read(0));              // NACK último byte
+	t->year  = bcd2dec(twi_read(0));   
+		uart_write("CHECKPOINT 5");
+           // NACK último byte
 	twi_stop();
 	return 0;
 }

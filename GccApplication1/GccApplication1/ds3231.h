@@ -6,8 +6,9 @@
 #include <stdint.h>
 
 // 7bits <<1 para R/W
-#define DS3231_ADDR_WRITE 0xD0
-#define DS3231_ADDR_READ  0xD1
+#define DS3231_SLA    0x68
+#define DS3231_ADDR_WRITE  ((DS3231_SLA<<1) | 0)   // 0xD0
+#define DS3231_ADDR_READ   ((DS3231_SLA<<1) | 1)   // 0xD1
 
 //BCD - decimal
 uint8_t bcd2dec(uint8_t b);

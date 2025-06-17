@@ -69,8 +69,8 @@ void show_current_time() {
 	if (ds3231_read_time(&now) == 0) { //imprime cada vez que cambia 1 segundo
 		if (now.sec != last_sec) {
 			last_sec = now.sec;
-			char out[48];
-			sprintf(out,"\rFECHA:%02u/%02u/%02u HORA:%02u:%02u:%02u\r",now.date, now.month, now.year,now.hour, now.min,  now.sec);
+			char out[50];
+			sprintf(out,"\rFECHA:%02u/%02u/%02u HORA:%02u:%02u:%02u\r\n",now.date, now.month, now.year,now.hour, now.min,  now.sec);
 			uart_write(out);
 		}
 	
@@ -120,7 +120,7 @@ static uint8_t handle_set_time(const char *p) {
 
 
 void show_menu(){
-		uart_write("\r\n*** RTC ALARM CLOCK ***\r\n");
+
 		uart_write("COMANDOS:\r\n");
 		uart_write("ON\r\n");
 		uart_write("OFF\r\n");
@@ -130,6 +130,8 @@ void show_menu(){
 }
 int main(void) {
 	DDRD |= (1<<PD1);// PD1 = TX out
+	DDRC  &= ~((1<<PC4)|(1<<PC5));
+	PORTC |=  (1<<PC4)|(1<<PC5);
 	
 	uart_init_int();
 	twi_init();
@@ -163,6 +165,20 @@ int main(void) {
 			if (strcasecmp(cmd_buf, "ON") == 0) {
 				state = ON;
 				uart_write("HORA ON\r\n");
+				rtc_time_t now;
+				if (ds3231_read_time(&now) == 0) { //imprime cada vez que cambia 1 segundo
+					uart_write("CHECKPOINT 2");
+
+					if (now.sec != last_sec) {
+										uart_write("CHECKPOINT 3");
+
+						last_sec = now.sec;
+						char out[50];
+						sprintf(out,"\rFECHA:%02u/%02u/%02u HORA:%02u:%02u:%02u\r\n",now.date, now.month, now.year,now.hour, now.min,  now.sec);
+						uart_write(out);
+					}
+				}
+					
 			}
 			else if (strcasecmp(cmd_buf, "OFF") == 0) {
 				state = IDLE;
