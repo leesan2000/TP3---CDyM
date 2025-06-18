@@ -69,8 +69,8 @@ void show_current_time() {
 	if (ds3231_read_time(&now) == 0) { //imprime cada vez que cambia 1 segundo
 		if (now.sec != last_sec) {
 			last_sec = now.sec;
-			char out[50];
-			sprintf(out,"\rFECHA:%02u/%02u/%02u HORA:%02u:%02u:%02u\r\n",now.date, now.month, now.year,now.hour, now.min,  now.sec);
+			char out[52];
+			sprintf(out,"\rFECHA: %02u/%02u/%02u HORA: %02u:%02u:%02u\r",now.date, now.month, now.year,now.hour, now.min,  now.sec);
 			uart_write(out);
 		}
 	
@@ -107,13 +107,13 @@ static uint8_t handle_set_time(const char *p) {
 		t.day   = 1;
 
 		if (ds3231_set_time(&t) == 0) {
-			uart_write("OK\r\n");
+			uart_write("\r\nOK\r\n");
 			return 1; 
 		} else {
-			uart_write("ERROR I2C\r\n");
+			uart_write("\r\nERROR I2C\r\n");
 		}
 	} else {
-		uart_write("FORMATO ERRONEO\r\n");
+		uart_write("\r\nFORMATO ERRONEO\r\n");
 	}
 	return 0;  
 }
@@ -121,11 +121,12 @@ static uint8_t handle_set_time(const char *p) {
 
 void show_menu(){
 
-		uart_write("COMANDOS:\r\n");
+		uart_write("\nCOMANDOS:\r\n");
 		uart_write("ON\r\n");
 		uart_write("OFF\r\n");
 		uart_write("SET TIME DD/MM/YY HH:MM:SS\r\n");
 		uart_write("SET ALARM HH:MM\r\n");
+		
 	
 }
 int main(void) {
@@ -141,6 +142,7 @@ int main(void) {
 
 	
 	state_t prev_state = (state_t)-1;
+	state_t act_state;
 	rtc_time_t now;
 
 	while (1) {
@@ -165,35 +167,30 @@ int main(void) {
 			if (strcasecmp(cmd_buf, "ON") == 0) {
 				state = ON;
 				uart_write("HORA ON\r\n");
-				rtc_time_t now;
-				if (ds3231_read_time(&now) == 0) { //imprime cada vez que cambia 1 segundo
-					uart_write("CHECKPOINT 2");
-
-					if (now.sec != last_sec) {
-										uart_write("CHECKPOINT 3");
-
-						last_sec = now.sec;
-						char out[50];
-						sprintf(out,"\rFECHA:%02u/%02u/%02u HORA:%02u:%02u:%02u\r\n",now.date, now.month, now.year,now.hour, now.min,  now.sec);
-						uart_write(out);
-					}
-				}
+				
 					
 			}
 			else if (strcasecmp(cmd_buf, "OFF") == 0) {
 				state = IDLE;
 				uart_write("HORA OFF\r\n");
 			}
-			else if (strncmp(cmd_buf, "SET TIME ", 9) == 0) {
-				uart_write("DEBUG: \"");
+			else if ( (strncmp(cmd_buf, "SET TIME ", 9) == 0) || (strncmp(cmd_buf, "set time ", 9) == 0) )  {
+				//uart_write("DEBUG: ");
+				//uart_write(cmd_buf);
+				//uart_write("\"\r\n");
 				uart_write(cmd_buf);
-				uart_write("\"\r\n");
 				state = SET_TIME;
 			}
-			else if (strncmp(cmd_buf, "SET ALARM ", 10) == 0) {
+			else if ( (strncmp(cmd_buf, "SET ALARM ", 10) == 0) || (strncmp(cmd_buf, "set alarm ", 10) == 0)        ) {
 				state = SET_ALARM;
+				//uart_write("DEBUG: ");
+				//uart_write(cmd_buf);
+				//uart_write("\"\r\n");
 			}else{
-				uart_write("COMANDO ERRONEO");
+				uart_write("COMANDO ERRONEO\r\n ");
+				//uart_write("DEBUG: ");
+				//uart_write(cmd_buf);
+				//uart_write("\"\r\n");
 				show_menu();
 			}
 			
@@ -212,11 +209,13 @@ int main(void) {
 		switch (state) {
 			
 			case IDLE:
+				act_state = IDLE;
 				//estado en el que esta el mcu cuando no se esta realiazndo ninguna accion
 			break;
 
 			case ON: //muestra fecha y hora
 			{
+				act_state = ON;
 				show_current_time();
 			}
 			break;
@@ -224,7 +223,7 @@ int main(void) {
 			case SET_TIME: 
 			{
 				if (handle_set_time(cmd_buf + 9) == 1){
-					state = ON;
+					state = act_state;
 				}else{
 					state = IDLE;
 				}
@@ -262,16 +261,16 @@ int main(void) {
 						
 						//confirmacion de alarma
 						char msg[32];
-						sprintf(msg, "Alarma configurada para %02d:%02d\r\n",
+						sprintf(msg, "\r\nAlarma configurada para %02d:%02d\r\n\n",
 						alarm.hour, alarm.min);
 						uart_write(msg);
 					} else {
-						uart_write("Error de comunicación I2C\r\n");
+						uart_write("ERROR I2C\r\n");
 					}
 				} else {
-					uart_write("Formato erroneo. Usar HH:MM\r\n");
+					uart_write("FORMATO ERRONEO. USAR HH:MM\r\n");
 				}
-			state = IDLE;
+			state = act_state;
 			}
 		}
 		break;
@@ -281,10 +280,10 @@ int main(void) {
 			if(ds3231_read_time(&now) == 0){
 				if(now.sec != last_sec){
 					last_sec = now.sec;
-					uart_write("ALARMA!\r\n");
+					uart_write("\r\nALARMA!\r\n");
 					alarm_count++;
 					if(alarm_count >= 5){
-						state = ON;
+						state = act_state;
 					}
 				}
 			}
