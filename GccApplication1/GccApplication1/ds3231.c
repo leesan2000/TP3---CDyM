@@ -37,26 +37,26 @@ uint8_t ds3231_set_time(const rtc_time_t *t)
 
 uint8_t ds3231_read_time(rtc_time_t *t)
 {
-		uart_write("CHECKPOINT 4\r\n");
+		//uart_write("CHECKPOINT 4\r\n");
 		uint8_t st;
 		st = twi_start(DS3231_ADDR_WRITE);
 		if (st == 0xFF) {
-			uart_write("I2C START W timeout\r\n");
+			//uart_write("I2C START W timeout\r\n");
 			return 1;
 		}
 		if (st != 0x18) {
-			uart_write("I2C START W err\r\n");
+			//uart_write("I2C START W err\r\n");
 			return 1;
 		}
 		twi_write(0x00);
 
 		st = twi_start(DS3231_ADDR_READ);
 		if (st == 0xFF) {
-			uart_write("I2C START R timeout\r\n");
+			//uart_write("I2C START R timeout\r\n");
 			return 1;
 		}
 		if (st != 0x40) {
-			uart_write("I2C START R err\r\n");
+			//uart_write("I2C START R err\r\n");
 			return 1;
 		}
 
@@ -68,7 +68,7 @@ uint8_t ds3231_read_time(rtc_time_t *t)
 	t->date  = bcd2dec(twi_read(1));
 	t->month = bcd2dec(twi_read(1));
 	t->year  = bcd2dec(twi_read(0));   
-		uart_write("CHECKPOINT 5");
+		//uart_write("CHECKPOINT 5");
            // NACK último byte
 	twi_stop();
 	return 0;
