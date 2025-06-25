@@ -30,7 +30,6 @@ static uint8_t cmd_len = 0;
 static rtc_alarm_t alarm = {0, 0, 0};
 static uint8_t alarm_triggered = 0;
 static uint8_t alarm_count = 0;
-static uint8_t last_minute = 0xFF;
 uint8_t last_sec = 0xFF;  // valor inválido inicial
 
 
@@ -75,13 +74,7 @@ void show_current_time() {
 		}
 	
 		
-		//verifica alarma
-		if (alarm.enabled && !alarm_triggered && now.hour == alarm.hour && now.min == alarm.min &&now.min != last_minute) {
-			alarm_triggered = 1;
-			alarm_count = 0;
-			uart_write("\r\nALARMA ACTIVADA!\r\n");
-		}
-		last_minute = now.min;
+
 	}
 }
 
