@@ -36,6 +36,9 @@ uint8_t last_sec = 0xFF;  // valor inválido inicial
 static uint8_t rx_line_ready(void) {
 	while (uart_available()) {
 		char c = uart_read();
+		
+		 char echo_buf[2] = { c, '\0' };
+		 uart_write(echo_buf);;
 
 		//borrado de caracter 
 		if (c == '\b' || c == 0x7F) {
